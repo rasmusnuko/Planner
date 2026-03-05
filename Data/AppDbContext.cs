@@ -14,6 +14,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Recipe> Recipes => Set<Recipe>();
     public DbSet<MealPlan> MealPlans => Set<MealPlan>();
     public DbSet<Milestone> Milestones => Set<Milestone>();
+    public DbSet<SleepLog> SleepLogs => Set<SleepLog>();
+    public DbSet<SleepNap> SleepNaps => Set<SleepNap>();
 
     protected override void OnModelCreating(ModelBuilder model)
     {
@@ -29,5 +31,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
                 v => JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>()
             );
+
+        // Unique date per sleep log
+        model.Entity<SleepLog>()
+            .HasIndex(s => s.Date)
+            .IsUnique();
+
+        model.Entity<SleepNap>()
+            .HasOne(n => n.SleepLog)
+            .WithMany(l => l.Naps)
+            .HasForeignKey(n => n.SleepLogId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

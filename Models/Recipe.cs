@@ -9,6 +9,7 @@ public class Recipe
     public string? Instructions { get; set; }
     public int? PrepTime { get; set; }
     public int? Servings { get; set; }
+    public string? SourceUrl { get; set; }
     public int? CreatedById { get; set; }
     public User? CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

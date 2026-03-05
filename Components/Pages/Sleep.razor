@@ -1,0 +1,273 @@
+@page "/sleep"
+@attribute [Authorize]
+@inject SleepService SleepSvc
+
+<PageTitle>Sleep – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Sleep tracker</div>
+            <div class="page-subtitle">Daily wake, nap &amp; bedtime log</div>
+        </div>
+        <button class="btn btn-primary btn-sm" @onclick="ToggleAddForm">
+            @(_showAddForm ? "Cancel" : "+ Log day")
+        </button>
+    </div>
+
+    @if (_showAddForm)
+    {
+        <div class="card mb-2">
+            <div class="card-header">
+                <span class="card-title">@(_editingId.HasValue ? "Edit entry" : "Add entry")</span>
+            </div>
+            <div class="card-body">
+                @if (_formError is not null)
+                {
+                    <div class="alert alert-error">@_formError</div>
+                }
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Date *</label>
+                        <input type="date" @bind="_formDate" />
+                    </div>
+                    <div class="form-group">
+                        <label>Morning wake</label>
+                        <input type="time" @bind="_formWake" />
+                    </div>
+                    <div class="form-group">
+                        <label>Bedtime</label>
+                        <input type="time" @bind="_formBed" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Notes (optional)</label>
+                    <input type="text" @bind="_formNotes" placeholder="e.g. Restless night, teething" />
+                </div>
+                <div class="flex gap-1">
+                    <button class="btn btn-primary btn-sm" @onclick="SaveLogAsync">Save</button>
+                    <button class="btn btn-ghost btn-sm" @onclick="ToggleAddForm">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_logs.Count == 0)
+    {
+        <div class="empty-state">No sleep entries yet. Add your first one above!</div>
+    }
+    else
+    {
+        @foreach (var log in _logs)
+        {
+            <div class="card mb-2">
+                <div class="card-header">
+                    <div>
+                        <span class="card-title">@log.Date.ToString("dddd, MMMM d")</span>
+                        <span class="text-muted text-xs" style="margin-left:0.5rem">@log.Date.ToString("yyyy")</span>
+                    </div>
+                    <div class="flex gap-1">
+                        <button class="btn btn-ghost btn-sm" @onclick="() => BeginEdit(log)">Edit</button>
+                        <button class="btn btn-danger btn-sm" @onclick="() => DeleteLogAsync(log.Id)">Delete</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Times row -->
+                    <div class="flex gap-2 mb-2" style="flex-wrap:wrap">
+                        @if (log.WakeTime.HasValue)
+                        {
+                            <div class="stat-card" style="flex:0 0 auto;padding:0.5rem 1rem;min-width:0">
+                                <div class="stat-value" style="font-size:1.1rem">@log.WakeTime.Value.ToString("HH:mm")</div>
+                                <div class="stat-label">☀️ Wake up</div>
+                            </div>
+                        }
+                        @if (log.Naps.Count > 0)
+                        {
+                            <div class="stat-card" style="flex:0 0 auto;padding:0.5rem 1rem;min-width:0">
+                                <div class="stat-value" style="font-size:1.1rem">@TotalNapMinutes(log) min</div>
+                                <div class="stat-label">😴 Total naps</div>
+                            </div>
+                        }
+                        @if (log.BedTime.HasValue)
+                        {
+                            <div class="stat-card" style="flex:0 0 auto;padding:0.5rem 1rem;min-width:0">
+                                <div class="stat-value" style="font-size:1.1rem">@log.BedTime.Value.ToString("HH:mm")</div>
+                                <div class="stat-label">🌙 Bedtime</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(log.Notes))
+                    {
+                        <div class="text-sm text-muted mb-2">📝 @log.Notes</div>
+                    }
+
+                    <!-- Naps section -->
+                    <div>
+                        <div style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:0.4rem;text-transform:uppercase;letter-spacing:0.05em">
+                            Naps (@log.Naps.Count)
+                        </div>
+
+                        @if (log.Naps.Count > 0)
+                        {
+                            <div class="item-list" style="margin-bottom:0.5rem">
+                                @foreach (var nap in log.Naps.OrderBy(n => n.StartTime))
+                                {
+                                    <div class="check-item">
+                                        <span style="font-size:1rem">😴</span>
+                                        <span class="item-label">
+                                            @nap.StartTime.ToString("HH:mm")
+                                            @if (nap.EndTime.HasValue)
+                                            {
+                                                <span> → @nap.EndTime.Value.ToString("HH:mm")</span>
+                                                <span class="item-meta" style="margin-left:0.4rem">
+                                                    (@NapDuration(nap) min)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="item-meta"> (no end time)</span>
+                                            }
+                                        </span>
+                                        <button class="btn btn-danger btn-icon btn-sm"
+                                                title="Delete nap"
+                                                @onclick="() => DeleteNapAsync(log.Id, nap.Id)">✕</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <!-- Add nap inline -->
+                        @if (_addNapLogId == log.Id)
+                        {
+                            <div class="form-row" style="align-items:flex-end;gap:0.5rem;flex-wrap:wrap">
+                                <div class="form-group" style="min-width:120px">
+                                    <label style="font-size:0.75rem">Start</label>
+                                    <input type="time" @bind="_napStart" style="font-size:0.8rem;padding:0.3rem 0.5rem" />
+                                </div>
+                                <div class="form-group" style="min-width:120px">
+                                    <label style="font-size:0.75rem">End (optional)</label>
+                                    <input type="time" @bind="_napEnd" style="font-size:0.8rem;padding:0.3rem 0.5rem" />
+                                </div>
+                                <div class="form-group" style="display:flex;gap:0.4rem;align-items:flex-end">
+                                    <button class="btn btn-primary btn-sm" style="font-size:0.75rem"
+                                            @onclick="() => SaveNapAsync(log.Id)">Add</button>
+                                    <button class="btn btn-ghost btn-sm" style="font-size:0.75rem"
+                                            @onclick="() => _addNapLogId = null">Cancel</button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="btn btn-ghost btn-sm" style="font-size:0.75rem;padding:0.2rem 0.5rem"
+                                    @onclick="() => BeginAddNap(log.Id)">+ Add nap</button>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<SleepLog> _logs = [];
+
+    // Add/edit form
+    private bool     _showAddForm;
+    private int?     _editingId;
+    private DateOnly _formDate  = DateOnly.FromDateTime(DateTime.Today);
+    private TimeOnly? _formWake;
+    private TimeOnly? _formBed;
+    private string   _formNotes = "";
+    private string?  _formError;
+
+    // Add nap
+    private int?     _addNapLogId;
+    private TimeOnly _napStart  = new(12, 0);
+    private TimeOnly? _napEnd;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _logs = await SleepSvc.GetRecentAsync();
+    }
+
+    private void ToggleAddForm()
+    {
+        _showAddForm = !_showAddForm;
+        if (_showAddForm)
+        {
+            _editingId = null;
+            _formDate  = DateOnly.FromDateTime(DateTime.Today);
+            _formWake  = null;
+            _formBed   = null;
+            _formNotes = "";
+            _formError = null;
+        }
+    }
+
+    private void BeginEdit(SleepLog log)
+    {
+        _editingId = log.Id;
+        _formDate  = log.Date;
+        _formWake  = log.WakeTime;
+        _formBed   = log.BedTime;
+        _formNotes = log.Notes ?? "";
+        _formError = null;
+        _showAddForm = true;
+        _addNapLogId = null;
+    }
+
+    private async Task SaveLogAsync()
+    {
+        _formError = null;
+        try
+        {
+            await SleepSvc.UpsertLogAsync(_formDate, _formWake, _formBed, _formNotes);
+            _showAddForm = false;
+            _editingId   = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+    }
+
+    private async Task DeleteLogAsync(int id)
+    {
+        await SleepSvc.DeleteLogAsync(id);
+        await LoadAsync();
+    }
+
+    private void BeginAddNap(int logId)
+    {
+        _addNapLogId = logId;
+        _napStart    = new TimeOnly(12, 0);
+        _napEnd      = null;
+    }
+
+    private async Task SaveNapAsync(int logId)
+    {
+        await SleepSvc.AddNapAsync(logId, _napStart, _napEnd);
+        _addNapLogId = null;
+        await LoadAsync();
+    }
+
+    private async Task DeleteNapAsync(int logId, int napId)
+    {
+        await SleepSvc.DeleteNapAsync(napId);
+        await LoadAsync();
+    }
+
+    private static int TotalNapMinutes(SleepLog log) =>
+        log.Naps
+           .Where(n => n.EndTime.HasValue)
+           .Sum(n => (int)(n.EndTime!.Value - n.StartTime).TotalMinutes);
+
+    private static int NapDuration(SleepNap nap) =>
+        nap.EndTime.HasValue
+            ? (int)(nap.EndTime.Value - nap.StartTime).TotalMinutes
+            : 0;
+}

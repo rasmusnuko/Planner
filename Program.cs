@@ -42,6 +42,8 @@ builder.Services.AddScoped<TodoService>();
 builder.Services.AddScoped<MealService>();
 builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<MilestoneService>();
+builder.Services.AddScoped<SleepService>();
+builder.Services.AddHttpClient<RecipeScraperService>();
 
 // ─── Build & seed ──────────────────────────────────────────────────────────────
 
@@ -52,6 +54,7 @@ using (var scope = app.Services.CreateScope())
     var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
     await using var ctx = await factory.CreateDbContextAsync();
     await ctx.Database.EnsureCreatedAsync();
+    await DbInitializer.MigrateAsync(ctx);
     DbInitializer.Seed(ctx);
 }
 

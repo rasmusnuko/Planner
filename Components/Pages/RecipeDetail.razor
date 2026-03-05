@@ -19,6 +19,13 @@ else
                 {
                     <div class="page-subtitle">By @_recipe.CreatedBy.DisplayName</div>
                 }
+                @if (!string.IsNullOrEmpty(_recipe.SourceUrl) && !_editing)
+                {
+                    <a href="@_recipe.SourceUrl" target="_blank" rel="noopener noreferrer"
+                       class="text-sm" style="color:var(--primary);text-decoration:none">
+                        View original recipe →
+                    </a>
+                }
             </div>
             <div class="flex gap-1">
                 <a href="/recipes" class="btn btn-ghost btn-sm">← Back</a>
@@ -67,6 +74,10 @@ else
                     <div class="form-group">
                         <label>Instructions</label>
                         <textarea @bind="_instructions" rows="8"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Source URL</label>
+                        <input type="url" @bind="_sourceUrl" placeholder="https://…" />
                     </div>
                     <button class="btn btn-primary" @onclick="SaveAsync">Save changes</button>
                 </div>
@@ -141,6 +152,7 @@ else
     private string _description     = "";
     private string _ingredientsText = "";
     private string _instructions    = "";
+    private string _sourceUrl       = "";
     private int?   _prepTime;
     private int?   _servings;
 
@@ -156,6 +168,7 @@ else
         _description     = _recipe.Description ?? "";
         _ingredientsText = string.Join('\n', _recipe.Ingredients);
         _instructions    = _recipe.Instructions ?? "";
+        _sourceUrl       = _recipe.SourceUrl ?? "";
         _prepTime        = _recipe.PrepTime;
         _servings        = _recipe.Servings;
     }
@@ -169,6 +182,7 @@ else
         _recipe.Ingredients   = _ingredientsText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                                     .Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
         _recipe.Instructions  = string.IsNullOrWhiteSpace(_instructions) ? null : _instructions.Trim();
+        _recipe.SourceUrl     = string.IsNullOrWhiteSpace(_sourceUrl)    ? null : _sourceUrl.Trim();
         _recipe.PrepTime      = _prepTime;
         _recipe.Servings      = _servings;
 
