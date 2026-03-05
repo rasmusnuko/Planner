@@ -1,0 +1,245 @@
+@page "/todos"
+@attribute [Authorize]
+@inject TodoService  TodoSvc
+@inject AuthService  AuthSvc
+
+<PageTitle>To-do – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">To-do lists</div>
+        </div>
+        <button class="btn btn-primary btn-sm" @onclick="() => _showNewList = !_showNewList">
+            + New list
+        </button>
+    </div>
+
+    @if (_showNewList)
+    {
+        <div class="card mb-2">
+            <div class="card-body">
+                <div class="form-group">
+                    <label>List name</label>
+                    <input type="text" @bind="_newListName" placeholder="e.g. Kitchen renovation" />
+                </div>
+                <div class="flex gap-1 items-center mb-2">
+                    <input type="checkbox" id="is-shared" @bind="_newListShared"
+                           style="width:16px;height:16px;accent-color:var(--primary)" />
+                    <label for="is-shared" style="margin:0;font-size:0.875rem;font-weight:400">
+                        Shared list (visible to both)
+                    </label>
+                </div>
+                <div class="flex gap-1">
+                    <button class="btn btn-primary btn-sm" @onclick="CreateListAsync">Create</button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => _showNewList = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="todo-layout">
+        <!-- Lists sidebar -->
+        <div>
+            <div class="card">
+                <div class="card-header"><span class="card-title">Lists</span></div>
+                <div class="card-body" style="padding:0.5rem">
+                    @if (_lists.Count == 0)
+                    {
+                        <div class="text-muted text-sm" style="padding:0.5rem">No lists yet.</div>
+                    }
+                    @foreach (var list in _lists)
+                    {
+                        <div class="list-link @(list.Id == _selectedListId ? "active" : "")"
+                             @onclick="() => SelectList(list.Id)">
+                            <div>
+                                <div>@list.Name</div>
+                                @if (list.IsShared)
+                                {
+                                    <span class="badge badge-shared" style="font-size:0.65rem">shared</span>
+                                }
+                                else if (list.Owner is not null)
+                                {
+                                    <span class="text-xs" style="color:@list.Owner.Color">@list.Owner.DisplayName</span>
+                                }
+                            </div>
+                            @if (list.Items.Count(i => !i.Done) > 0)
+                            {
+                                <span class="list-count">@list.Items.Count(i => !i.Done)</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Items panel -->
+        <div>
+            @if (_selectedList is not null)
+            {
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <span class="card-title">@_selectedList.Name</span>
+                            @if (_selectedList.IsShared)
+                            {
+                                <span class="badge badge-shared" style="margin-left:0.4rem">shared</span>
+                            }
+                        </div>
+                        <button class="btn btn-danger btn-sm" @onclick="DeleteListAsync">Delete list</button>
+                    </div>
+                    <div class="card-body">
+                        <!-- Add item -->
+                        <div class="form-row mb-2" style="flex-wrap:wrap">
+                            <div class="form-group" style="flex:2;min-width:160px">
+                                <input type="text" @bind="_newItemText"
+                                       @onkeyup="HandleItemEnter"
+                                       placeholder="New task…" />
+                            </div>
+                            <div class="form-group" style="min-width:120px">
+                                <select @bind="_newItemAssignedStr">
+                                    <option value="">Anyone</option>
+                                    @foreach (var u in _users)
+                                    {
+                                        <option value="@u.Id">@u.DisplayName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <button class="btn btn-primary" @onclick="AddItemAsync">Add</button>
+                            </div>
+                        </div>
+
+                        @if (_items.Count == 0)
+                        {
+                            <div class="empty-state" style="padding:1.5rem">No tasks yet. Add one above!</div>
+                        }
+                        else
+                        {
+                            <div class="item-list">
+                                @foreach (var item in _items)
+                                {
+                                    <div class="check-item @(item.Done ? "done" : "")">
+                                        <input type="checkbox" checked="@item.Done"
+                                               @onchange="() => ToggleItemAsync(item.Id)" />
+                                        <span class="item-label">@item.Text</span>
+                                        @if (item.AssignedTo is not null)
+                                        {
+                                            <span class="item-meta" style="color:@item.AssignedTo.Color">
+                                                @item.AssignedTo.DisplayName
+                                            </span>
+                                        }
+                                        <button class="btn btn-danger btn-icon btn-sm"
+                                                @onclick="() => DeleteItemAsync(item.Id)">✕</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="empty-state">Select a list on the left, or create a new one.</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<TodoList> _lists = [];
+    private List<TodoItem> _items = [];
+    private List<User>     _users = [];
+    private int?     _selectedListId;
+    private TodoList? _selectedList;
+    private int _currentUserId;
+
+    private bool   _showNewList;
+    private string _newListName  = "";
+    private bool   _newListShared;
+    private string _newItemText       = "";
+    private string _newItemAssignedStr = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var id = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(id, out var uid)) _currentUserId = uid;
+        }
+        _users = await AuthSvc.GetAllUsersAsync();
+        await LoadListsAsync();
+        if (_lists.Count > 0) await SelectList(_lists[0].Id);
+    }
+
+    private async Task LoadListsAsync()
+    {
+        _lists = await TodoSvc.GetListsAsync();
+        _selectedList = _lists.FirstOrDefault(l => l.Id == _selectedListId);
+    }
+
+    private async Task SelectList(int id)
+    {
+        _selectedListId = id;
+        _selectedList   = _lists.FirstOrDefault(l => l.Id == id);
+        _items = await TodoSvc.GetItemsAsync(id);
+    }
+
+    private async Task CreateListAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newListName)) return;
+        var list = await TodoSvc.CreateListAsync(_newListName.Trim(), _newListShared, _currentUserId);
+        _newListName  = "";
+        _showNewList  = false;
+        await LoadListsAsync();
+        await SelectList(list.Id);
+    }
+
+    private async Task DeleteListAsync()
+    {
+        if (_selectedListId is null) return;
+        await TodoSvc.DeleteListAsync(_selectedListId.Value);
+        _selectedListId = null;
+        _selectedList   = null;
+        _items          = [];
+        await LoadListsAsync();
+    }
+
+    private async Task AddItemAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newItemText) || _selectedListId is null) return;
+        await TodoSvc.AddItemAsync(new TodoItem
+        {
+            ListId      = _selectedListId.Value,
+            Text        = _newItemText.Trim(),
+            AssignedToId = int.TryParse(_newItemAssignedStr, out var uid) ? uid : null
+        });
+        _newItemText = "";
+        _items = await TodoSvc.GetItemsAsync(_selectedListId.Value);
+        await LoadListsAsync(); // refresh open counts
+    }
+
+    private async Task HandleItemEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddItemAsync();
+    }
+
+    private async Task ToggleItemAsync(int id)
+    {
+        await TodoSvc.ToggleItemAsync(id);
+        if (_selectedListId.HasValue)
+            _items = await TodoSvc.GetItemsAsync(_selectedListId.Value);
+        await LoadListsAsync();
+    }
+
+    private async Task DeleteItemAsync(int id)
+    {
+        await TodoSvc.DeleteItemAsync(id);
+        if (_selectedListId.HasValue)
+            _items = await TodoSvc.GetItemsAsync(_selectedListId.Value);
+        await LoadListsAsync();
+    }
+}

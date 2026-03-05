@@ -1,27 +1,21 @@
-FROM node:20-alpine
-
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /app
-
-# Install native build tools for better-sqlite3
-RUN apk add --no-cache python3 make g++
-
-COPY package*.json ./
-RUN npm ci
-
+COPY *.csproj .
+RUN dotnet restore
 COPY . .
-RUN npm run build
+RUN dotnet publish -c Release -o /out
 
-RUN npm prune --production
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
+WORKDIR /app
+COPY --from=build /out .
 
 RUN mkdir -p /data
 
 ENV DATABASE_PATH=/data/planner.db
-ENV PORT=3000
-ENV HOST=0.0.0.0
-ENV NODE_ENV=production
+ENV ASPNETCORE_URLS=http://+:3000
+ENV ASPNETCORE_ENVIRONMENT=Production
 
 EXPOSE 3000
-
 VOLUME ["/data"]
 
-CMD ["node", "build"]
+CMD ["dotnet", "HomePlanner.dll"]

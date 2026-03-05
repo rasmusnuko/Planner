@@ -1,0 +1,100 @@
+@page "/recipes/new"
+@attribute [Authorize]
+@inject RecipeService  RecipeSvc
+@inject NavigationManager Nav
+
+<PageTitle>New recipe – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">New recipe</div>
+        </div>
+        <a href="/recipes" class="btn btn-ghost btn-sm">← Back</a>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="alert alert-error">@_error</div>
+    }
+
+    <div class="card">
+        <div class="card-body">
+            <div class="form-group">
+                <label>Recipe name *</label>
+                <input type="text" @bind="_title" placeholder="e.g. Spaghetti Bolognese" />
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Prep time (minutes)</label>
+                    <input type="number" @bind="_prepTime" min="1" placeholder="30" />
+                </div>
+                <div class="form-group">
+                    <label>Servings</label>
+                    <input type="number" @bind="_servings" min="1" placeholder="4" />
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Short description</label>
+                <textarea @bind="_description" rows="2" placeholder="A quick description of the dish…"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Ingredients (one per line)</label>
+                <textarea @bind="_ingredients" rows="6" placeholder="200g pasta&#10;1 onion&#10;2 cloves garlic"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Instructions</label>
+                <textarea @bind="_instructions" rows="8" placeholder="Step by step instructions…"></textarea>
+            </div>
+            <div class="flex gap-1">
+                <button class="btn btn-primary" @onclick="SaveAsync">Save recipe</button>
+                <a href="/recipes" class="btn btn-ghost">Cancel</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string _title        = "";
+    private string _description  = "";
+    private string _ingredients  = "";
+    private string _instructions = "";
+    private int?   _prepTime;
+    private int?   _servings;
+    private string? _error;
+    private int _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var id = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(id, out var uid)) _currentUserId = uid;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_title))
+        {
+            _error = "Title is required.";
+            return;
+        }
+        var recipe = new Recipe
+        {
+            Title        = _title.Trim(),
+            Description  = string.IsNullOrWhiteSpace(_description)  ? null : _description.Trim(),
+            Ingredients  = _ingredients.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                               .Select(s => s.Trim()).Where(s => s.Length > 0).ToList(),
+            Instructions = string.IsNullOrWhiteSpace(_instructions) ? null : _instructions.Trim(),
+            PrepTime     = _prepTime,
+            Servings     = _servings,
+            CreatedById  = _currentUserId
+        };
+        var saved = await RecipeSvc.CreateAsync(recipe);
+        Nav.NavigateTo($"/recipes/{saved.Id}");
+    }
+}

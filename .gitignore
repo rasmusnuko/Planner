@@ -1,8 +1,16 @@
-.svelte-kit/
-build/
-node_modules/
+# Build artifacts
+bin/
+obj/
+.vs/
+.vscode/
+
+# Database
 data/
-.env
 *.db
 *.db-wal
 *.db-shm
+
+# User-specific
+*.user
+*.suo
+.env

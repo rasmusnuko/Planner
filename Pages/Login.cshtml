@@ -1,0 +1,44 @@
+@page
+@model HomePlanner.Pages.LoginModel
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="~/app.css" />
+    <title>Sign in – HomePlanner</title>
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-card">
+        <div class="login-title">🏠 HomePlanner</div>
+        <div class="login-subtitle">Sign in to your household</div>
+
+        @if (Model.Error is not null)
+        {
+            <div class="alert alert-error">@Model.Error</div>
+        }
+
+        <form method="post">
+            @Html.AntiForgeryToken()
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input id="username" name="username" type="text"
+                       autocomplete="username" required autofocus />
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password"
+                       autocomplete="current-password" required />
+            </div>
+            <button type="submit" class="btn btn-primary w-full" style="margin-top:0.5rem">
+                Sign in
+            </button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

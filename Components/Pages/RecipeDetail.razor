@@ -1,0 +1,186 @@
+@page "/recipes/{Id:int}"
+@attribute [Authorize]
+@inject RecipeService RecipeSvc
+@inject NavigationManager Nav
+
+<PageTitle>@(_recipe?.Title ?? "Recipe") – HomePlanner</PageTitle>
+
+@if (_recipe is null)
+{
+    <div class="page"><div class="empty-state">Recipe not found.</div></div>
+}
+else
+{
+    <div class="page">
+        <div class="page-header">
+            <div class="page-header-left">
+                <div class="page-title">@_recipe.Title</div>
+                @if (_recipe.CreatedBy is not null)
+                {
+                    <div class="page-subtitle">By @_recipe.CreatedBy.DisplayName</div>
+                }
+            </div>
+            <div class="flex gap-1">
+                <a href="/recipes" class="btn btn-ghost btn-sm">← Back</a>
+                <button class="btn btn-secondary btn-sm" @onclick="() => _editing = !_editing">
+                    @(_editing ? "Cancel" : "Edit")
+                </button>
+                <button class="btn btn-danger btn-sm" @onclick="DeleteAsync">Delete</button>
+            </div>
+        </div>
+
+        @if (_successMsg is not null)
+        {
+            <div class="alert alert-success">@_successMsg</div>
+        }
+        @if (_error is not null)
+        {
+            <div class="alert alert-error">@_error</div>
+        }
+
+        @if (_editing)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <div class="form-group">
+                        <label>Recipe name *</label>
+                        <input type="text" @bind="_title" />
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Prep time (minutes)</label>
+                            <input type="number" @bind="_prepTime" min="1" />
+                        </div>
+                        <div class="form-group">
+                            <label>Servings</label>
+                            <input type="number" @bind="_servings" min="1" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea @bind="_description" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Ingredients (one per line)</label>
+                        <textarea @bind="_ingredientsText" rows="6"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Instructions</label>
+                        <textarea @bind="_instructions" rows="8"></textarea>
+                    </div>
+                    <button class="btn btn-primary" @onclick="SaveAsync">Save changes</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;align-items:start">
+                <div class="card">
+                    <div class="card-body">
+                        @if (_recipe.PrepTime.HasValue)
+                        {
+                            <div class="mb-1">
+                                <span class="text-muted text-sm">Prep time</span><br />
+                                <strong>⏱ @_recipe.PrepTime min</strong>
+                            </div>
+                        }
+                        @if (_recipe.Servings.HasValue)
+                        {
+                            <div class="mb-1">
+                                <span class="text-muted text-sm">Servings</span><br />
+                                <strong>👥 @_recipe.Servings</strong>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(_recipe.Description))
+                        {
+                            <p class="text-sm" style="margin-top:0.5rem">@_recipe.Description</p>
+                        }
+                        @if (_recipe.Ingredients.Count > 0)
+                        {
+                            <div style="margin-top:1rem">
+                                <div class="font-semibold mb-1" style="font-size:0.85rem">Ingredients</div>
+                                <ul style="padding-left:1.2rem;font-size:0.875rem;line-height:2">
+                                    @foreach (var ing in _recipe.Ingredients)
+                                    {
+                                        <li>@ing</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_recipe.Instructions))
+                {
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">Instructions</span></div>
+                        <div class="card-body" style="white-space:pre-wrap;font-size:0.9rem;line-height:1.7">
+                            @_recipe.Instructions
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">No instructions added yet.</div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private Recipe? _recipe;
+    private bool _editing;
+    private string? _error;
+    private string? _successMsg;
+
+    // Edit form fields
+    private string _title           = "";
+    private string _description     = "";
+    private string _ingredientsText = "";
+    private string _instructions    = "";
+    private int?   _prepTime;
+    private int?   _servings;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _recipe = await RecipeSvc.GetByIdAsync(Id);
+        if (_recipe is not null) PopulateFields();
+    }
+
+    private void PopulateFields()
+    {
+        _title           = _recipe!.Title;
+        _description     = _recipe.Description ?? "";
+        _ingredientsText = string.Join('\n', _recipe.Ingredients);
+        _instructions    = _recipe.Instructions ?? "";
+        _prepTime        = _recipe.PrepTime;
+        _servings        = _recipe.Servings;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_title)) { _error = "Title is required."; return; }
+
+        _recipe!.Title        = _title.Trim();
+        _recipe.Description   = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim();
+        _recipe.Ingredients   = _ingredientsText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+        _recipe.Instructions  = string.IsNullOrWhiteSpace(_instructions) ? null : _instructions.Trim();
+        _recipe.PrepTime      = _prepTime;
+        _recipe.Servings      = _servings;
+
+        await RecipeSvc.UpdateAsync(_recipe);
+        _editing    = false;
+        _error      = null;
+        _successMsg = "Recipe updated!";
+    }
+
+    private async Task DeleteAsync()
+    {
+        await RecipeSvc.DeleteAsync(Id);
+        Nav.NavigateTo("/recipes");
+    }
+}

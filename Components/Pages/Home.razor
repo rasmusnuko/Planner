@@ -1,0 +1,157 @@
+@page "/"
+@attribute [Authorize]
+@inject CalendarService  CalendarSvc
+@inject ShoppingService  ShoppingSvc
+@inject TodoService      TodoSvc
+@inject MealService      MealSvc
+@inject MilestoneService MilestoneSvc
+
+<PageTitle>Home – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Good day, @_displayName!</div>
+            <div class="page-subtitle">@DateTime.Now.ToString("dddd, MMMM d")</div>
+        </div>
+        <a href="/calendar" class="btn btn-secondary btn-sm">Open calendar</a>
+    </div>
+
+    <div class="stat-grid">
+        <div class="stat-card">
+            <div class="stat-value">@_todayEvents.Count</div>
+            <div class="stat-label">Today's events</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_shoppingCount</div>
+            <div class="stat-label">Items to buy</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_todoCount</div>
+            <div class="stat-label">Open tasks</div>
+        </div>
+    </div>
+
+    <!-- Today -->
+    <div class="card mb-2">
+        <div class="card-header">
+            <span class="card-title">Today</span>
+            <a href="/calendar" class="btn btn-ghost btn-sm">+ Add event</a>
+        </div>
+        <div class="card-body">
+            @if (_todayEvents.Count == 0 && _todayMeal is null)
+            {
+                <div class="text-muted text-sm">Nothing planned for today.</div>
+            }
+            @if (_todayMeal is not null)
+            {
+                <div class="check-item">
+                    <span style="font-size:1.1rem">🍽️</span>
+                    <div>
+                        <div class="item-label" style="font-weight:600">
+                            @(_todayMeal.Recipe?.Title ?? _todayMeal.CustomMeal)
+                        </div>
+                        <div class="item-meta">Tonight's dinner</div>
+                    </div>
+                    <a href="/meals" class="btn btn-ghost btn-sm" style="margin-left:auto">View meals</a>
+                </div>
+            }
+            @foreach (var ev in _todayEvents)
+            {
+                <div class="check-item">
+                    <span style="font-size:1.1rem">@EventEmoji(ev.Type)</span>
+                    <div style="flex:1">
+                        <div class="item-label">@ev.Title</div>
+                        @if (ev.AssignedTo is not null)
+                        {
+                            <div class="item-meta" style="color:@ev.AssignedTo.Color">→ @ev.AssignedTo.DisplayName</div>
+                        }
+                        @if (!string.IsNullOrEmpty(ev.Notes))
+                        {
+                            <div class="item-meta">@ev.Notes</div>
+                        }
+                    </div>
+                    <span class="badge badge-@ev.Type">@ev.Type</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        @if (_upcomingEvents.Any())
+        {
+            <div class="card">
+                <div class="card-header"><span class="card-title">Coming up</span></div>
+                <div class="card-body">
+                    @foreach (var ev in _upcomingEvents)
+                    {
+                        <div class="check-item">
+                            <div style="flex:1">
+                                <div class="item-label">@ev.Title</div>
+                                <div class="item-meta">@ev.Date.ToString("MMM d")</div>
+                            </div>
+                            <span class="badge badge-@ev.Type">@ev.Type</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        @if (_recentMilestones.Any())
+        {
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Recent milestones</span>
+                    <a href="/milestones" class="btn btn-ghost btn-sm">All</a>
+                </div>
+                <div class="card-body">
+                    @foreach (var m in _recentMilestones)
+                    {
+                        <div class="check-item">
+                            <span style="font-size:1.3rem">@m.Emoji</span>
+                            <div>
+                                <div class="item-label">@m.Title</div>
+                                <div class="item-meta">@m.Date.ToString("MMM d, yyyy")</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string _displayName = "there";
+    private readonly DateOnly _today = DateOnly.FromDateTime(DateTime.Today);
+    private List<CalendarEvent> _todayEvents    = [];
+    private List<CalendarEvent> _upcomingEvents = [];
+    private int _shoppingCount;
+    private int _todoCount;
+    private MealPlan? _todayMeal;
+    private List<Milestone> _recentMilestones   = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            _displayName = state.User.FindFirst("display_name")?.Value ?? "there";
+        }
+
+        _todayEvents      = await CalendarSvc.GetEventsTodayAsync(_today);
+        _upcomingEvents   = await CalendarSvc.GetUpcomingAsync(_today);
+        _shoppingCount    = await ShoppingSvc.GetUncheckedCountAsync();
+        _todoCount        = await TodoSvc.GetTotalOpenCountAsync();
+        _todayMeal        = await MealSvc.GetTodayAsync(_today);
+        _recentMilestones = await MilestoneSvc.GetRecentAsync();
+    }
+
+    private static string EventEmoji(string type) => type switch
+    {
+        "pickup" => "🚗",
+        "dinner" => "🍽️",
+        _        => "📌"
+    };
+}

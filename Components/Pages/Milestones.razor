@@ -1,0 +1,143 @@
+@page "/milestones"
+@attribute [Authorize]
+@inject MilestoneService MilestoneSvc
+
+<PageTitle>Milestones – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Milestones</div>
+            <div class="page-subtitle">Family moments &amp; achievements</div>
+        </div>
+    </div>
+
+    <!-- Add form -->
+    <div class="card mb-2">
+        <div class="card-header"><span class="card-title">Add milestone</span></div>
+        <div class="card-body">
+            @if (_error is not null)
+            {
+                <div class="alert alert-error">@_error</div>
+            }
+            <div class="form-row">
+                <div class="form-group" style="flex:2;min-width:160px">
+                    <label>Title *</label>
+                    <input type="text" @bind="_newTitle" placeholder="e.g. First steps!" />
+                </div>
+                <div class="form-group" style="min-width:140px">
+                    <label>Date *</label>
+                    <input type="date" @bind="_newDate" />
+                </div>
+            </div>
+
+            <!-- Emoji picker -->
+            <div class="form-group">
+                <label>Emoji</label>
+                <div class="flex gap-1" style="flex-wrap:wrap">
+                    @foreach (var emoji in _emojis)
+                    {
+                        <button type="button"
+                                style="background:@(_newEmoji == emoji ? "var(--primary-light)" : "transparent");border:1px solid @(_newEmoji == emoji ? "var(--primary)" : "var(--border)");border-radius:6px;padding:0.25rem 0.4rem;font-size:1.2rem;cursor:pointer;line-height:1"
+                                @onclick="() => _newEmoji = emoji">@emoji</button>
+                    }
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Description (optional)</label>
+                <textarea @bind="_newDescription" rows="2" placeholder="A little story about this moment…"></textarea>
+            </div>
+            <button class="btn btn-primary btn-sm" @onclick="AddAsync">Save milestone</button>
+        </div>
+    </div>
+
+    <!-- Timeline -->
+    @if (_milestones.Count == 0)
+    {
+        <div class="empty-state">No milestones yet. Record your first one above!</div>
+    }
+    else
+    {
+        <div class="milestones-timeline">
+            @foreach (var m in _milestones)
+            {
+                <div class="milestone-item">
+                    <div class="milestone-emoji">@m.Emoji</div>
+                    <div class="milestone-content">
+                        <div class="milestone-date">
+                            @m.Date.ToString("MMMM d, yyyy")
+                            @if (m.CreatedBy is not null)
+                            {
+                                <span> · <span style="color:@m.CreatedBy.Color">@m.CreatedBy.DisplayName</span></span>
+                            }
+                        </div>
+                        <div class="milestone-title">@m.Title</div>
+                        @if (!string.IsNullOrEmpty(m.Description))
+                        {
+                            <div class="milestone-desc">@m.Description</div>
+                        }
+                    </div>
+                    <button class="btn btn-danger btn-icon btn-sm"
+                            title="Delete"
+                            style="align-self:flex-start;margin-top:0.25rem"
+                            @onclick="() => DeleteAsync(m.Id)">✕</button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<Milestone> _milestones = [];
+    private string   _newTitle       = "";
+    private DateOnly _newDate        = DateOnly.FromDateTime(DateTime.Today);
+    private string   _newEmoji       = "⭐";
+    private string   _newDescription = "";
+    private string?  _error;
+    private int _currentUserId;
+
+    private static readonly string[] _emojis =
+        ["⭐","🎉","🏆","❤️","🌟","🎂","🚀","🌈","🦷","👣","🎓","🏠","✈️","🎵"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var id = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(id, out var uid)) _currentUserId = uid;
+        }
+        _milestones = await MilestoneSvc.GetAllAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle))
+        {
+            _error = "Title is required.";
+            return;
+        }
+        await MilestoneSvc.AddAsync(new Milestone
+        {
+            Date        = _newDate,
+            Title       = _newTitle.Trim(),
+            Description = string.IsNullOrWhiteSpace(_newDescription) ? null : _newDescription.Trim(),
+            Emoji       = _newEmoji,
+            CreatedById = _currentUserId
+        });
+        _newTitle       = "";
+        _newDescription = "";
+        _newEmoji       = "⭐";
+        _error          = null;
+        _milestones     = await MilestoneSvc.GetAllAsync();
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        await MilestoneSvc.DeleteAsync(id);
+        _milestones = await MilestoneSvc.GetAllAsync();
+    }
+}

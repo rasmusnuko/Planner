@@ -1,0 +1,176 @@
+@page "/shopping"
+@attribute [Authorize]
+@inject ShoppingService ShoppingSvc
+
+<PageTitle>Shopping – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Shopping list</div>
+            <div class="page-subtitle">@_unchecked.Count item@(_unchecked.Count != 1 ? "s" : "") left</div>
+        </div>
+        @if (_checked.Count > 0)
+        {
+            <button class="btn btn-secondary btn-sm" @onclick="ClearCheckedAsync">
+                Clear checked (@_checked.Count)
+            </button>
+        }
+    </div>
+
+    <!-- Add item -->
+    <div class="card mb-2">
+        <div class="card-body">
+            <div class="form-row">
+                <div class="form-group" style="flex:2;min-width:160px">
+                    <label>Add item</label>
+                    <input type="text" @bind="_newName" @onkeyup="HandleEnter" placeholder="e.g. Milk" />
+                </div>
+                <div class="form-group" style="min-width:130px">
+                    <label>Category</label>
+                    <select @bind="_newCategory">
+                        @foreach (var cat in ShoppingService.Categories)
+                        {
+                            <option value="@cat">@CategoryEmoji(cat) @cat</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group" style="display:flex;align-items:flex-end">
+                    <button class="btn btn-primary" @onclick="AddItemAsync">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Unchecked items grouped by category -->
+    @if (_unchecked.Count == 0)
+    {
+        <div class="empty-state">🎉 Shopping list is empty!</div>
+    }
+    else
+    {
+        @foreach (var grp in _unchecked.GroupBy(i => i.Category))
+        {
+            <div class="card mb-2">
+                <div class="card-header">
+                    <span class="card-title">@CategoryEmoji(grp.Key) @grp.Key</span>
+                    <span class="text-muted text-xs">@grp.Count() item@(grp.Count()!=1?"s":"")</span>
+                </div>
+                <div class="card-body" style="padding:0 1.25rem">
+                    <div class="item-list">
+                        @foreach (var item in grp)
+                        {
+                            <div class="check-item">
+                                <input type="checkbox" checked="@item.Checked"
+                                       @onchange="() => ToggleAsync(item.Id)" />
+                                <span class="item-label">@item.Name</span>
+                                @if (item.AddedBy is not null)
+                                {
+                                    <span class="item-meta" style="color:@item.AddedBy.Color">@item.AddedBy.DisplayName</span>
+                                }
+                                <button class="btn btn-danger btn-icon btn-sm"
+                                        title="Remove"
+                                        @onclick="() => DeleteAsync(item.Id)">✕</button>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+
+    <!-- Checked items -->
+    @if (_checked.Count > 0)
+    {
+        <div class="card" style="opacity:0.6">
+            <div class="card-header">
+                <span class="card-title">✓ In the basket (@_checked.Count)</span>
+            </div>
+            <div class="card-body" style="padding:0 1.25rem">
+                <div class="item-list">
+                    @foreach (var item in _checked)
+                    {
+                        <div class="check-item done">
+                            <input type="checkbox" checked="@item.Checked"
+                                   @onchange="() => ToggleAsync(item.Id)" />
+                            <span class="item-label">@item.Name</span>
+                            <button class="btn btn-danger btn-icon btn-sm"
+                                    @onclick="() => DeleteAsync(item.Id)">✕</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<ShoppingItem> _unchecked = [];
+    private List<ShoppingItem> _checked   = [];
+    private string _newName     = "";
+    private string _newCategory = "other";
+    private int _currentUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var id = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(id, out var uid)) _currentUserId = uid;
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var all = await ShoppingSvc.GetItemsAsync();
+        _unchecked = all.Where(i => !i.Checked).ToList();
+        _checked   = all.Where(i =>  i.Checked).ToList();
+    }
+
+    private async Task AddItemAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        await ShoppingSvc.AddAsync(new ShoppingItem
+        {
+            Name       = _newName.Trim(),
+            Category   = _newCategory,
+            AddedById  = _currentUserId
+        });
+        _newName = "";
+        await LoadAsync();
+    }
+
+    private async Task HandleEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddItemAsync();
+    }
+
+    private async Task ToggleAsync(int id)
+    {
+        await ShoppingSvc.ToggleAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(int id)
+    {
+        await ShoppingSvc.DeleteAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task ClearCheckedAsync()
+    {
+        await ShoppingSvc.ClearCheckedAsync();
+        await LoadAsync();
+    }
+
+    private static string CategoryEmoji(string cat) => cat switch
+    {
+        "produce" => "🥦", "dairy"  => "🥛", "meat"   => "🥩",
+        "bakery"  => "🍞", "frozen" => "🧊", "pantry" => "🥫",
+        "drinks"  => "🧃", _ => "📦"
+    };
+}

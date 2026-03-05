@@ -1,0 +1,252 @@
+@page "/calendar"
+@attribute [Authorize]
+@inject CalendarService CalendarSvc
+@inject AuthService     AuthSvc
+
+<PageTitle>Calendar – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Calendar</div>
+            <div class="page-subtitle">@_monthName @_year</div>
+        </div>
+        <div class="flex gap-1">
+            <button class="btn btn-secondary btn-sm" @onclick="PrevMonth">‹ Prev</button>
+            <button class="btn btn-secondary btn-sm" @onclick="GoToday">Today</button>
+            <button class="btn btn-secondary btn-sm" @onclick="NextMonth">Next ›</button>
+        </div>
+    </div>
+
+    <!-- Calendar grid -->
+    <div class="calendar-grid" style="margin-bottom:1.5rem">
+        @foreach (var h in new[] { "Mon","Tue","Wed","Thu","Fri","Sat","Sun" })
+        {
+            <div class="calendar-day-header">@h</div>
+        }
+        @foreach (var cell in _calendarDays)
+        {
+            var evs = _eventsByDate.GetValueOrDefault(cell.Date) ?? [];
+            <div class="calendar-cell @(!cell.IsCurrentMonth ? "other-month" : "") @(cell.Date == _today ? "today" : "") @(cell.Date == _selectedDate ? "selected" : "")"
+                 @onclick="() => SelectDate(cell.Date)">
+                <div class="cell-day">@cell.Date.Day</div>
+                <div class="cell-events">
+                    @foreach (var ev in evs.Take(3))
+                    {
+                        <div class="cell-event @ev.Type">@ev.Title</div>
+                    }
+                    @if (evs.Count > 3)
+                    {
+                        <div class="cell-event general">+@(evs.Count - 3) more</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Selected day panel -->
+    @if (_selectedDate.HasValue)
+    {
+        var dayEvents = _eventsByDate.GetValueOrDefault(_selectedDate.Value) ?? [];
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">📅 @_selectedDate.Value.ToString("dddd, MMMM d")</span>
+                <button class="btn btn-ghost btn-sm" @onclick="() => _selectedDate = null">✕ Close</button>
+            </div>
+            <div class="card-body">
+                @if (dayEvents.Count > 0)
+                {
+                    <div class="item-list mb-2">
+                        @foreach (var ev in dayEvents)
+                        {
+                            <div class="check-item">
+                                <div style="flex:1">
+                                    <span class="badge badge-@ev.Type" style="margin-right:0.4rem">@ev.Type</span>
+                                    <strong>@ev.Title</strong>
+                                    @if (ev.AssignedTo is not null)
+                                    {
+                                        <span class="text-muted text-sm" style="margin-left:0.4rem">
+                                            → <span style="color:@ev.AssignedTo.Color">@ev.AssignedTo.DisplayName</span>
+                                        </span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(ev.Notes))
+                                    {
+                                        <div class="text-sm text-muted mt-1">@ev.Notes</div>
+                                    }
+                                </div>
+                                <button class="btn btn-danger btn-icon btn-sm"
+                                        title="Delete"
+                                        @onclick="() => DeleteEventAsync(ev.Id)">✕</button>
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p class="text-muted text-sm mb-2">No events on this day.</p>
+                }
+
+                <!-- Add event form -->
+                <div style="border-top:1px solid var(--border);padding-top:1rem">
+                    <div class="form-row">
+                        <div class="form-group" style="flex:2;min-width:140px">
+                            <label>Title</label>
+                            <input type="text" @bind="_newTitle" placeholder="e.g. Pick up Lily" />
+                        </div>
+                        <div class="form-group" style="min-width:120px">
+                            <label>Type</label>
+                            <select @bind="_newType">
+                                <option value="general">General</option>
+                                <option value="pickup">Pickup</option>
+                                <option value="dinner">Dinner</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="min-width:120px">
+                            <label>Assigned to</label>
+                            <select @bind="_newAssignedStr">
+                                <option value="">Anyone</option>
+                                @foreach (var u in _users)
+                                {
+                                    <option value="@u.Id">@u.DisplayName</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Notes (optional)</label>
+                        <input type="text" @bind="_newNotes" placeholder="Any extra details…" />
+                    </div>
+                    @if (_addError is not null)
+                    {
+                        <div class="alert alert-error">@_addError</div>
+                    }
+                    <button class="btn btn-primary btn-sm" @onclick="AddEventAsync">Add event</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <p class="text-muted text-sm text-center">Click a day to view or add events.</p>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private record CalDay(DateOnly Date, bool IsCurrentMonth);
+
+    private int _year  = DateTime.Today.Year;
+    private int _month = DateTime.Today.Month;
+    private DateOnly _today = DateOnly.FromDateTime(DateTime.Today);
+
+    private DateOnly? _selectedDate;
+    private List<CalDay> _calendarDays = [];
+    private List<CalendarEvent> _events = [];
+    private Dictionary<DateOnly, List<CalendarEvent>> _eventsByDate = [];
+    private List<User> _users = [];
+
+    private string _newTitle       = "";
+    private string _newType        = "general";
+    private string _newAssignedStr = "";
+    private string _newNotes       = "";
+    private string? _addError;
+    private int _currentUserId;
+
+    private static readonly string[] MonthNames =
+        ["January","February","March","April","May","June",
+         "July","August","September","October","November","December"];
+    private string _monthName => MonthNames[_month - 1];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var id = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(id, out var uid)) _currentUserId = uid;
+        }
+        _users = await AuthSvc.GetAllUsersAsync();
+        await LoadEventsAsync();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _calendarDays = BuildCalendar(_year, _month);
+        _events = await CalendarSvc.GetEventsForMonthAsync(_year, _month);
+        _eventsByDate = _events
+            .GroupBy(e => e.Date)
+            .ToDictionary(g => g.Key, g => g.ToList());
+    }
+
+    private void SelectDate(DateOnly date)
+    {
+        _selectedDate  = date;
+        _newTitle      = "";
+        _newType       = "general";
+        _newAssignedStr = "";
+        _newNotes      = "";
+        _addError      = null;
+    }
+
+    private async Task AddEventAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newTitle))
+        {
+            _addError = "Title is required.";
+            return;
+        }
+        var ev = new CalendarEvent
+        {
+            Title       = _newTitle.Trim(),
+            Date        = _selectedDate!.Value,
+            Type        = _newType,
+            AssignedToId = int.TryParse(_newAssignedStr, out var uid) ? uid : null,
+            Notes       = string.IsNullOrWhiteSpace(_newNotes) ? null : _newNotes.Trim(),
+            CreatedById = _currentUserId
+        };
+        await CalendarSvc.AddAsync(ev);
+        _newTitle = "";
+        _addError = null;
+        await LoadEventsAsync();
+    }
+
+    private async Task DeleteEventAsync(int id)
+    {
+        await CalendarSvc.DeleteAsync(id);
+        await LoadEventsAsync();
+    }
+
+    private async Task PrevMonth()
+    {
+        if (_month == 1) { _month = 12; _year--; } else _month--;
+        await LoadEventsAsync();
+    }
+
+    private async Task NextMonth()
+    {
+        if (_month == 12) { _month = 1; _year++; } else _month++;
+        await LoadEventsAsync();
+    }
+
+    private async Task GoToday()
+    {
+        _year  = DateTime.Today.Year;
+        _month = DateTime.Today.Month;
+        await LoadEventsAsync();
+    }
+
+    private static List<CalDay> BuildCalendar(int year, int month)
+    {
+        var firstDay = new DateOnly(year, month, 1);
+        var offset   = ((int)firstDay.DayOfWeek + 6) % 7; // Monday = 0
+        var start    = firstDay.AddDays(-offset);
+        return Enumerable.Range(0, 42)
+            .Select(i =>
+            {
+                var d = start.AddDays(i);
+                return new CalDay(d, d.Month == month);
+            })
+            .ToList();
+    }
+}

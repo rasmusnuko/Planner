@@ -1,0 +1,167 @@
+@page "/meals"
+@attribute [Authorize]
+@inject MealService   MealSvc
+@inject RecipeService RecipeSvc
+
+<PageTitle>Meals – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Meal planner</div>
+            <div class="page-subtitle">Weekly dinner overview</div>
+        </div>
+        <div class="flex gap-1">
+            <button class="btn btn-secondary btn-sm" @onclick="PrevWeek">‹ Prev</button>
+            <button class="btn btn-secondary btn-sm" @onclick="ThisWeek">This week</button>
+            <button class="btn btn-secondary btn-sm" @onclick="NextWeek">Next ›</button>
+        </div>
+    </div>
+
+    <div class="week-grid">
+        @foreach (var day in _weekDays)
+        {
+            <div class="week-day-card @(day.IsToday ? "today" : "")">
+                <div class="week-day-header">
+                    <div class="week-day-name">@day.DayName</div>
+                    <div class="week-day-date">@day.Date.Day</div>
+                </div>
+                <div class="week-day-body">
+                    @if (_editingDate == day.Date)
+                    {
+                        <!-- Edit form -->
+                        <div class="form-group" style="margin-bottom:0.5rem">
+                            <select @bind="_editRecipeStr" style="font-size:0.8rem;padding:0.35rem 0.5rem">
+                                <option value="">— no recipe —</option>
+                                @foreach (var r in _recipes)
+                                {
+                                    <option value="@r.Id">@r.Title</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0.5rem">
+                            <input type="text" @bind="_editCustomMeal"
+                                   placeholder="Or type meal name…"
+                                   style="font-size:0.8rem;padding:0.35rem 0.5rem" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0.5rem">
+                            <input type="text" @bind="_editNotes"
+                                   placeholder="Notes…"
+                                   style="font-size:0.8rem;padding:0.35rem 0.5rem" />
+                        </div>
+                        <div class="flex gap-1">
+                            <button class="btn btn-primary btn-sm"
+                                    style="font-size:0.75rem;padding:0.25rem 0.5rem"
+                                    @onclick="() => SaveMealAsync(day.Date)">Save</button>
+                            <button class="btn btn-ghost btn-sm"
+                                    style="font-size:0.75rem"
+                                    @onclick="() => _editingDate = null">✕</button>
+                        </div>
+                    }
+                    else if (day.Meal is not null)
+                    {
+                        <div class="meal-name">@(day.Meal.Recipe?.Title ?? day.Meal.CustomMeal)</div>
+                        @if (day.Meal.RecipeId.HasValue)
+                        {
+                            <a href="/recipes/@day.Meal.RecipeId" class="meal-recipe-link">View recipe →</a>
+                        }
+                        @if (!string.IsNullOrEmpty(day.Meal.Notes))
+                        {
+                            <div class="text-xs text-muted mt-1">@day.Meal.Notes</div>
+                        }
+                        <div class="flex gap-1" style="margin-top:0.5rem">
+                            <button class="btn btn-ghost btn-sm"
+                                    style="font-size:0.72rem;padding:0.2rem 0.4rem"
+                                    @onclick="() => BeginEdit(day)">Edit</button>
+                            <button class="btn btn-danger btn-sm"
+                                    style="font-size:0.72rem;padding:0.2rem 0.4rem"
+                                    @onclick="() => ClearMealAsync(day.Date)">Clear</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="no-meal">Not planned</div>
+                        <button class="btn btn-ghost btn-sm"
+                                style="margin-top:0.5rem;font-size:0.75rem;padding:0.25rem 0.5rem"
+                                @onclick="() => BeginEdit(day)">+ Plan</button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <div style="margin-top:1.5rem;text-align:right">
+        <a href="/recipes" class="btn btn-secondary btn-sm">📖 Browse recipes</a>
+        <a href="/recipes/new" class="btn btn-primary btn-sm" style="margin-left:0.5rem">+ New recipe</a>
+    </div>
+</div>
+
+@code {
+    private record WeekDay(DateOnly Date, string DayName, bool IsToday, MealPlan? Meal);
+
+    private List<WeekDay> _weekDays = [];
+    private List<Recipe>  _recipes  = [];
+    private int _weekOffset;
+    private DateOnly? _editingDate;
+    private string _editRecipeStr = "";
+    private string _editCustomMeal = "";
+    private string _editNotes = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _recipes = await RecipeSvc.GetAllSimpleAsync();
+        await LoadWeekAsync();
+    }
+
+    private async Task LoadWeekAsync()
+    {
+        var weekStart = GetWeekStart(_weekOffset);
+        var meals     = await MealSvc.GetWeekAsync(weekStart);
+        var mealByDate = meals.ToDictionary(m => m.Date);
+        var today     = DateOnly.FromDateTime(DateTime.Today);
+        var dayNames  = new[] { "Mon","Tue","Wed","Thu","Fri","Sat","Sun" };
+
+        _weekDays = Enumerable.Range(0, 7)
+            .Select(i =>
+            {
+                var d = weekStart.AddDays(i);
+                return new WeekDay(d, dayNames[i], d == today, mealByDate.GetValueOrDefault(d));
+            })
+            .ToList();
+    }
+
+    private void BeginEdit(WeekDay day)
+    {
+        _editingDate   = day.Date;
+        _editRecipeStr = day.Meal?.RecipeId?.ToString() ?? "";
+        _editCustomMeal = day.Meal?.CustomMeal ?? "";
+        _editNotes     = day.Meal?.Notes ?? "";
+    }
+
+    private async Task SaveMealAsync(DateOnly date)
+    {
+        int? recipeId = int.TryParse(_editRecipeStr, out var rid) ? rid : null;
+        var customMeal = string.IsNullOrWhiteSpace(_editCustomMeal) ? null : _editCustomMeal.Trim();
+        var notes      = string.IsNullOrWhiteSpace(_editNotes)     ? null : _editNotes.Trim();
+        await MealSvc.SetMealAsync(date, recipeId, customMeal, notes);
+        _editingDate = null;
+        await LoadWeekAsync();
+    }
+
+    private async Task ClearMealAsync(DateOnly date)
+    {
+        await MealSvc.ClearMealAsync(date);
+        await LoadWeekAsync();
+    }
+
+    private async Task PrevWeek() { _weekOffset--; _editingDate = null; await LoadWeekAsync(); }
+    private async Task NextWeek() { _weekOffset++; _editingDate = null; await LoadWeekAsync(); }
+    private async Task ThisWeek() { _weekOffset = 0; _editingDate = null; await LoadWeekAsync(); }
+
+    private static DateOnly GetWeekStart(int offset)
+    {
+        var today = DateTime.Today;
+        var dow   = ((int)today.DayOfWeek + 6) % 7; // Monday = 0
+        return DateOnly.FromDateTime(today.AddDays(-dow + offset * 7));
+    }
+}
