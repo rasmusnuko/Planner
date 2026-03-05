@@ -1,0 +1,246 @@
+@page "/admin"
+@attribute [Authorize(Policy = "Admin", AuthenticationSchemes = "AdminScheme")]
+@inject AuthService AuthSvc
+
+<PageTitle>Admin – HomePlanner</PageTitle>
+
+<div class="page">
+    <div class="page-header">
+        <div class="page-header-left">
+            <div class="page-title">Admin panel</div>
+            <div class="page-subtitle">User management</div>
+        </div>
+        <form method="post" action="/admin-logout">
+            <AntiforgeryToken />
+            <button type="submit" class="btn btn-ghost btn-sm">Sign out admin</button>
+        </form>
+    </div>
+
+    @if (_successMsg is not null)
+    {
+        <div class="alert alert-success">@_successMsg</div>
+    }
+
+    <!-- Users list -->
+    <div class="card mb-2">
+        <div class="card-header"><span class="card-title">Users (@_users.Count)</span></div>
+        <div class="card-body" style="padding:0">
+            @if (_users.Count == 0)
+            {
+                <div class="text-muted text-sm" style="padding:1rem">
+                    No users yet. Create the first one below.
+                </div>
+            }
+            else
+            {
+                <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+                    <thead>
+                        <tr style="border-bottom:1px solid var(--border);text-align:left">
+                            <th style="padding:0.6rem 1.25rem;font-weight:600;color:var(--text-muted);font-size:0.75rem;text-transform:uppercase">User</th>
+                            <th style="padding:0.6rem 1.25rem;font-weight:600;color:var(--text-muted);font-size:0.75rem;text-transform:uppercase">Username</th>
+                            <th style="padding:0.6rem 1.25rem"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var user in _users)
+                        {
+                            <tr style="border-bottom:1px solid var(--border)">
+                                <td style="padding:0.75rem 1.25rem">
+                                    <div style="display:flex;align-items:center;gap:0.6rem">
+                                        <div style="width:28px;height:28px;border-radius:50%;background:@user.Color;display:flex;align-items:center;justify-content:center;color:#fff;font-size:0.7rem;font-weight:700;flex-shrink:0">
+                                            @Initials(user.DisplayName)
+                                        </div>
+                                        <span style="font-weight:500">@user.DisplayName</span>
+                                    </div>
+                                </td>
+                                <td style="padding:0.75rem 1.25rem;color:var(--text-muted)">@user.Username</td>
+                                <td style="padding:0.75rem 1.25rem;text-align:right">
+                                    <div style="display:flex;gap:0.4rem;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+                                        @if (_changePwUserId == user.Id)
+                                        {
+                                            <input type="password" @bind="_newPassword"
+                                                   placeholder="New password"
+                                                   style="width:160px;font-size:0.8rem;padding:0.3rem 0.5rem" />
+                                            <button class="btn btn-primary btn-sm"
+                                                    style="font-size:0.75rem"
+                                                    @onclick="() => SavePasswordAsync(user.Id)">Save</button>
+                                            <button class="btn btn-ghost btn-sm"
+                                                    style="font-size:0.75rem"
+                                                    @onclick="() => _changePwUserId = null">Cancel</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-secondary btn-sm"
+                                                    style="font-size:0.75rem"
+                                                    @onclick="() => BeginChangePassword(user.Id)">
+                                                Change password
+                                            </button>
+                                            <button class="btn btn-danger btn-sm"
+                                                    style="font-size:0.75rem"
+                                                    @onclick="() => ConfirmDeleteAsync(user.Id, user.DisplayName)">
+                                                Delete
+                                            </button>
+                                        }
+                                    </div>
+                                    @if (_rowError.TryGetValue(user.Id, out var rowErr))
+                                    {
+                                        <div class="text-sm" style="color:var(--danger);margin-top:0.3rem">@rowErr</div>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <!-- Delete confirmation -->
+    @if (_deleteConfirmId.HasValue)
+    {
+        <div class="card mb-2" style="border:2px solid var(--danger)">
+            <div class="card-body">
+                <p style="margin:0 0 0.75rem">
+                    Delete user <strong>@_deleteConfirmName</strong>? This cannot be undone.
+                </p>
+                <div class="flex gap-1">
+                    <button class="btn btn-danger btn-sm" @onclick="ExecuteDeleteAsync">Yes, delete</button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => _deleteConfirmId = null">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Create user -->
+    <div class="card">
+        <div class="card-header"><span class="card-title">Create user</span></div>
+        <div class="card-body">
+            @if (_createError is not null)
+            {
+                <div class="alert alert-error">@_createError</div>
+            }
+            <div class="form-row">
+                <div class="form-group" style="flex:1;min-width:140px">
+                    <label>Username *</label>
+                    <input type="text" @bind="_newUsername" placeholder="e.g. rasmus" />
+                </div>
+                <div class="form-group" style="flex:1;min-width:140px">
+                    <label>Display name *</label>
+                    <input type="text" @bind="_newDisplayName" placeholder="e.g. Rasmus" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group" style="flex:1;min-width:140px">
+                    <label>Password *</label>
+                    <input type="password" @bind="_newUserPassword" />
+                </div>
+                <div class="form-group" style="min-width:100px">
+                    <label>Color</label>
+                    <input type="color" @bind="_newColor"
+                           style="height:38px;padding:2px 4px;cursor:pointer" />
+                </div>
+            </div>
+            <button class="btn btn-primary" @onclick="CreateUserAsync">Create user</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<User> _users = [];
+
+    // Create form
+    private string  _newUsername     = "";
+    private string  _newDisplayName  = "";
+    private string  _newUserPassword = "";
+    private string  _newColor        = "#4f46e5";
+    private string? _createError;
+    private string? _successMsg;
+
+    // Change password
+    private int?    _changePwUserId;
+    private string  _newPassword = "";
+    private Dictionary<int, string> _rowError = [];
+
+    // Delete confirmation
+    private int?    _deleteConfirmId;
+    private string  _deleteConfirmName = "";
+
+    protected override async Task OnInitializedAsync()
+        => _users = await AuthSvc.GetAllUsersAsync();
+
+    private void BeginChangePassword(int id)
+    {
+        _changePwUserId = id;
+        _newPassword    = "";
+        _rowError.Remove(id);
+    }
+
+    private async Task SavePasswordAsync(int id)
+    {
+        if (string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _rowError[id] = "Password cannot be empty.";
+            return;
+        }
+        try
+        {
+            await AuthSvc.ChangePasswordAsync(id, _newPassword);
+            _changePwUserId = null;
+            _newPassword    = "";
+            _successMsg     = "Password updated.";
+        }
+        catch (Exception ex)
+        {
+            _rowError[id] = ex.Message;
+        }
+    }
+
+    private void ConfirmDeleteAsync(int id, string name)
+    {
+        _deleteConfirmId   = id;
+        _deleteConfirmName = name;
+        _successMsg        = null;
+    }
+
+    private async Task ExecuteDeleteAsync()
+    {
+        if (_deleteConfirmId is null) return;
+        await AuthSvc.DeleteUserAsync(_deleteConfirmId.Value);
+        _deleteConfirmId = null;
+        _successMsg      = $"User '{_deleteConfirmName}' deleted.";
+        _users           = await AuthSvc.GetAllUsersAsync();
+    }
+
+    private async Task CreateUserAsync()
+    {
+        _createError = null;
+        _successMsg  = null;
+        if (string.IsNullOrWhiteSpace(_newUsername))    { _createError = "Username is required."; return; }
+        if (string.IsNullOrWhiteSpace(_newDisplayName)) { _createError = "Display name is required."; return; }
+        if (string.IsNullOrWhiteSpace(_newUserPassword)){ _createError = "Password is required."; return; }
+
+        try
+        {
+            var user = await AuthSvc.CreateUserAsync(
+                _newUsername, _newDisplayName, _newUserPassword, _newColor);
+            _successMsg      = $"User '{user.DisplayName}' created.";
+            _newUsername     = "";
+            _newDisplayName  = "";
+            _newUserPassword = "";
+            _newColor        = "#4f46e5";
+            _users           = await AuthSvc.GetAllUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            _createError = ex.Message;
+        }
+    }
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return string.Concat(parts.Select(p => p[0])).ToUpper() is { Length: > 0 } s
+            ? s.Length > 2 ? s[..2] : s
+            : "?";
+    }
+}

@@ -6,16 +6,10 @@ services:
     volumes:
       - planner_data:/data
     environment:
-      DATABASE_PATH: /data/planner.db
-      # Change these passwords before first run!
-      USER1_USERNAME: rasmus
-      USER1_PASSWORD: changeme
-      USER1_DISPLAY_NAME: Rasmus
-      USER1_COLOR: "#4f46e5"
-      USER2_USERNAME: partner
-      USER2_PASSWORD: changeme
-      USER2_DISPLAY_NAME: Partner
-      USER2_COLOR: "#ec4899"
+      DATABASE_PATH:  /data/planner.db
+      # Change DB_PASSWORD and ADMIN_PASSWORD before first run!
+      DB_PASSWORD:    "change-this-db-key"      # SQLite file encryption key
+      ADMIN_PASSWORD: "change-this-admin-pw"    # Admin panel password (/admin-login)
     restart: unless-stopped
 
 volumes:

@@ -11,20 +11,35 @@ var builder = WebApplication.CreateBuilder(args);
 var dbPath = Environment.GetEnvironmentVariable("DATABASE_PATH") ?? "./data/planner.db";
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
 
+var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD")
+    ?? throw new InvalidOperationException(
+        "DB_PASSWORD environment variable is required. Set it in docker-compose.yml.");
+
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
-    options.UseSqlite($"Data Source={dbPath}"));
+    options.UseSqlite($"Data Source={dbPath};Password={dbPassword}"));
 
 // ─── Authentication ────────────────────────────────────────────────────────────
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
-        o.LoginPath = "/login";
+        o.LoginPath      = "/login";
         o.ExpireTimeSpan = TimeSpan.FromDays(30);
+        o.SlidingExpiration = true;
+    })
+    .AddCookie("AdminScheme", o =>
+    {
+        o.Cookie.Name       = "admin_auth";
+        o.LoginPath         = "/admin-login";
+        o.ExpireTimeSpan    = TimeSpan.FromHours(4);
         o.SlidingExpiration = true;
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o =>
+    o.AddPolicy("Admin", p =>
+        p.AddAuthenticationSchemes("AdminScheme")
+         .RequireAuthenticatedUser()));
+
 builder.Services.AddCascadingAuthenticationState();
 
 // ─── Razor Pages + Blazor ──────────────────────────────────────────────────────
@@ -45,7 +60,7 @@ builder.Services.AddScoped<MilestoneService>();
 builder.Services.AddScoped<SleepService>();
 builder.Services.AddHttpClient<RecipeScraperService>();
 
-// ─── Build & seed ──────────────────────────────────────────────────────────────
+// ─── Build & migrate ───────────────────────────────────────────────────────────
 
 var app = builder.Build();
 
@@ -55,7 +70,6 @@ using (var scope = app.Services.CreateScope())
     await using var ctx = await factory.CreateDbContextAsync();
     await ctx.Database.EnsureCreatedAsync();
     await DbInitializer.MigrateAsync(ctx);
-    DbInitializer.Seed(ctx);
 }
 
 app.UseStaticFiles();
